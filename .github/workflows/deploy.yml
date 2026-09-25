@@ -1,12 +1,16 @@
 name: Deploy Terraform environment
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       environment:
         description: Environment to deploy
         required: true
         type: choice
+        default: dev
         options:
           - dev
           - stage
@@ -24,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(inputs.environment == 'all' && '["dev","stage","prod"]' || format('["{0}"]', inputs.environment)) }}
+        environment: ${{ fromJSON(inputs.environment == 'all' && '["dev","stage","prod"]' || format('["{0}"]', inputs.environment || 'dev')) }}
     runs-on: ubuntu-latest
     environment: ${{ matrix.environment }}
     concurrency:

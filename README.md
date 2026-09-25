@@ -59,7 +59,7 @@ If you change `project_name` or `aws_region`, update bootstrap inputs, all three
 
 ## 3. Deploy
 
-Open **Actions → Deploy Terraform environment → Run workflow** and choose `dev`, `stage`, or `prod` for one deployment. Choose `all` to run a matrix of three deployment jobs in parallel. Each job uses its own GitHub Environment variables and protection rules, builds and pushes an immutable SHA-based image to that environment's ECR repository, plans and applies Terraform, and prints its API and ECS URLs in the job summary. Jobs for the same environment are serialized across workflow runs. The `all` option does not wait for `dev` to succeed before starting `stage` or `prod`.
+Pushing to `main` automatically deploys `dev`. For a manual deployment, open **Actions → Deploy Terraform environment → Run workflow** and choose `dev`, `stage`, or `prod`. Choose `all` to run a matrix of three deployment jobs in parallel. Each job uses its own GitHub Environment variables and protection rules, builds and pushes an immutable SHA-based image to that environment's ECR repository, plans and applies Terraform, and prints its API and ECS URLs in the job summary. Jobs for the same environment are serialized across workflow runs. The `all` option does not wait for `dev` to succeed before starting `stage` or `prod`.
 
 For a local Terraform plan, build and push an image to the bootstrapped ECR repository first, then initialize the desired environment with its state bucket:
 
