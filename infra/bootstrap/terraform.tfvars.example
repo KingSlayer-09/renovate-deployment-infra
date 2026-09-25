@@ -1,0 +1,5 @@
+aws_region        = "us-east-1"
+project_name      = "tf-live-demo"
+github_repository = "YOUR_ORG/YOUR_REPO"
+github_owner_id   = "123456"
+github_repo_id    = "789012"
