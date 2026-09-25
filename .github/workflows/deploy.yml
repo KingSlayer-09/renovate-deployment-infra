@@ -1,34 +1,100 @@
-name: Deploy Terraform environment
+name: Scan, plan, and deploy Terraform
 
 on:
   push:
     branches:
+      - feature/dev
+      - feature/stage
       - main
   workflow_dispatch:
-    inputs:
-      environment:
-        description: Environment to deploy
-        required: true
-        type: choice
-        default: dev
-        options:
-          - dev
-          - stage
-          - prod
-          - all
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
+  scan:
+    name: Scan secrets
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.target.outputs.environment }}
+    steps:
+      - name: Select deployment environment
+        id: target
+        shell: bash
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/feature/dev) environment=dev ;;
+            refs/heads/feature/stage) environment=stage ;;
+            refs/heads/main) environment=prod ;;
+            *) echo "Unsupported deployment branch: $GITHUB_REF" >&2; exit 1 ;;
+          esac
+          echo "environment=$environment" >> "$GITHUB_OUTPUT"
+
+      - name: Check out source with history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan with TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          base: ""
+          head: ${{ github.ref_name }}
+          extra_args: --results=verified,unknown
+
+  plan:
+    name: Plan ${{ needs.scan.outputs.environment }}
+    needs: scan
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    environment: ${{ needs.scan.outputs.environment }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+      TF_IN_AUTOMATION: "true"
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infra
+
+      - name: Initialize Terraform state
+        working-directory: infra/live/${{ needs.scan.outputs.environment }}
+        run: terraform init -input=false -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="region=$AWS_REGION"
+
+      - name: Validate Terraform
+        working-directory: infra/live/${{ needs.scan.outputs.environment }}
+        run: terraform validate -no-color
+
+      - name: Plan infrastructure
+        working-directory: infra/live/${{ needs.scan.outputs.environment }}
+        run: terraform plan -input=false -no-color -var="image_tag=${GITHUB_SHA}-${GITHUB_RUN_ATTEMPT}"
+
   deploy:
-    if: github.ref == 'refs/heads/main'
     name: Deploy ${{ matrix.environment }}
+    needs: [scan, plan]
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
-        environment: ${{ fromJSON(inputs.environment == 'all' && '["dev","stage","prod"]' || format('["{0}"]', inputs.environment || 'dev')) }}
+        environment: ${{ fromJSON(format('["{0}"]', needs.scan.outputs.environment)) }}
     runs-on: ubuntu-latest
     environment: ${{ matrix.environment }}
     concurrency:
@@ -80,14 +146,7 @@ jobs:
         working-directory: infra/live/${{ matrix.environment }}
         run: terraform init -input=false -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="region=$AWS_REGION"
 
-      - name: Check Terraform formatting
-        run: terraform fmt -check -recursive infra
-
-      - name: Validate Terraform
-        working-directory: infra/live/${{ matrix.environment }}
-        run: terraform validate -no-color
-
-      - name: Plan infrastructure
+      - name: Plan infrastructure for apply
         working-directory: infra/live/${{ matrix.environment }}
         run: terraform plan -input=false -no-color -out=deployment.tfplan -var="image_tag=${{ steps.image.outputs.tag }}"
 

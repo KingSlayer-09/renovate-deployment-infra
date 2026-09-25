@@ -11,7 +11,7 @@ app/                         Python HTTP app and Dockerfile
 infra/bootstrap/             State bucket, three ECR repos, GitHub OIDC roles
 infra/modules/app_stack/     Shared environment infrastructure
 infra/live/{dev,stage,prod}/ Thin roots with separate state keys and settings
-.github/workflows/deploy.yml Manual GitHub Actions deployment
+.github/workflows/deploy.yml Branch-based GitHub Actions deployment
 ```
 
 ## Prerequisites
@@ -53,13 +53,13 @@ Create GitHub Environments named `dev`, `stage`, and `prod`. Under each environm
 | `TF_STATE_BUCKET` | `state_bucket` output |
 | `ECR_REPOSITORY` | `tf-live-demo/dev/app` |
 
-Set deployment branch rules to `main` for all three environments and required reviewers for `prod` (and `stage` if desired). The workflow only runs deployment jobs from `main`. AWS authentication uses GitHub OIDC; no long-lived AWS access keys are stored in GitHub.
+Set each GitHub Environment's selected deployment branch rule to its matching branch: `dev` → `feature/dev`, `stage` → `feature/stage`, and `prod` → `main`. Add required reviewers for `prod` (and `stage` if desired). Both the plan and deploy jobs reference the environment, so protected environments require approval at both jobs. AWS authentication uses GitHub OIDC; no long-lived AWS access keys are stored in GitHub.
 
 If you change `project_name` or `aws_region`, update bootstrap inputs, all three `infra/live/*/terraform.tfvars` files, and the GitHub environment variables together.
 
 ## 3. Deploy
 
-Pushing to `main` automatically deploys `dev`. For a manual deployment, open **Actions → Deploy Terraform environment → Run workflow** and choose `dev`, `stage`, or `prod`. Choose `all` to run a matrix of three deployment jobs in parallel. Each job uses its own GitHub Environment variables and protection rules, builds and pushes an immutable SHA-based image to that environment's ECR repository, plans and applies Terraform, and prints its API and ECS URLs in the job summary. Jobs for the same environment are serialized across workflow runs. The `all` option does not wait for `dev` to succeed before starting `stage` or `prod`.
+Push to `feature/dev`, `feature/stage`, or `main` to deploy `dev`, `stage`, or `prod`, respectively. The workflow has three dependent jobs: TruffleHog scans the branch history for secrets; Terraform checks formatting, validates, and makes a speculative plan for that branch's environment; then a dynamic deployment matrix selects that environment, builds and pushes an immutable SHA-based image to its ECR repository, makes a fresh saved plan, and applies it. A failed scan or plan prevents deployment. The final job plans again because it runs on a separate runner after the image push. Deployments to the same environment are serialized across workflow runs. You can also use **Actions → Scan, plan, and deploy Terraform → Run workflow** on one of these branches.
 
 For a local Terraform plan, build and push an image to the bootstrapped ECR repository first, then initialize the desired environment with its state bucket:
 
